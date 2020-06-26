@@ -1,0 +1,39 @@
+{
+    "Actions": [
+        {
+            "Icon": "playlisticon",
+            "Name": "Playlist",
+            "States": [
+                {
+                    "Image": "brightness"
+                }
+            ],
+            "Tooltip": "This is an example tooltip",
+            "UUID": "com.streamdeckify.app.playlist"
+        }
+    ],
+    "SDKVersion": 2,
+    "Author": "Jason David Carpenter",
+    "CodePath": "index.html",
+    "PropertyInspectorPath": "pi/index.html",
+    "Description": "Spotify plugin for Stream Deck",
+    "Name": "Streamdeckify",
+    "Icon": "action/images/action",
+    "Category": "Streamdeckify",
+    "CategoryIcon": "streamdeckifyicon",
+    "URL": "https://streamdeckify.com",
+    "Version": "1.0.0",
+    "OS": [
+        {
+            "Platform": "mac",
+            "MinimumVersion": "10.11"
+        },
+        {
+            "Platform": "windows",
+            "MinimumVersion": "10"
+        }
+    ],
+    "Software": {
+        "MinimumVersion": "4.1"
+    }
+}

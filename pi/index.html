@@ -1,0 +1,220 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+    <meta charset="utf-8" />
+    <title>com.elgato.sample PI</title>
+    <link rel="stylesheet" href="sdpi.css">
+    <script src="jquery.js"></script>
+
+</head>
+
+<body>
+    <div class="sdpi-wrapper">
+        <div class="sdpi-item">
+            <div class="sdpi-item-label">Access Code</div>
+            <input class="sdpi-item-value" id="accessCode" placeholder="Use Authoize button to get this">
+        </div>
+        <div class="sdpi-item">
+            <div class="sdpi-item-label top" style="display: block;">Playlists</div>
+            <select class="sdpi-item-value select top" id="playlists" style="display: block;">
+
+            </select>
+        </div>
+        <div class="sdpi-item">
+            <button class="sdpi-item-value" id="authorizeButton">Authorize
+                Spotify Account</button>
+        </div>
+        <div class="sdpi-item">
+            <button class="sdpi-item-value" id="playlistButton">Refresh Playlists</button>
+        </div>
+    </div>
+    <script>
+
+        var websocket = null,
+            uuid = null,
+            actionInfo = {},
+            globalSettings = {},
+            playlists = {};
+
+        function connectElgatoStreamDeckSocket(inPort, inUUID, inRegisterEvent, inInfo, inActionInfo) {
+            uuid = inUUID;
+            // please note: the incoming arguments are of type STRING, so
+            // in case of the inActionInfo, we must parse it into JSON first
+            actionInfo = JSON.parse(inActionInfo); // cache the info
+            websocket = new WebSocket('ws://localhost:' + inPort);
+
+            // if connection was established, the websocket sends
+            // an 'onopen' event, where we need to register our PI
+            websocket.onopen = function () {
+                var json = {
+                    event: inRegisterEvent,
+                    uuid: inUUID
+                };
+                // register property inspector to Stream Deck
+                websocket.send(JSON.stringify(json));
+                requestGlobalSettings(inUUID);
+            }
+
+            websocket.onmessage = function (evt) {
+                // Received message from Stream Deck
+                var jsonObj = JSON.parse(evt.data);
+                var event = jsonObj['event'];
+                var jsonPayload = jsonObj['payload'];
+
+                if (event == "didReceiveGlobalSettings") {
+                    // Set global plugin settings
+                    console.log(jsonPayload['settings']);
+                    globalSettings = jsonPayload['settings'];
+                    getPlaylists();
+                }
+                else if (event == "didReceiveSettings") {
+                    // Save global settings after default was set
+                    settings = jsonPayload['settings'];
+                }
+            }
+        }
+
+        // our method to pass values to the plugin
+        function sendValueToPlugin(value, param) {
+            if (websocket) {
+                const json = {
+                    "action": actionInfo['action'],
+                    "event": "sendToPlugin",
+                    "context": uuid,
+                    "payload": {
+                        [param]: value
+                    }
+                };
+                websocket.send(JSON.stringify(json));
+            }
+        }
+
+        function saveGlobalSettings(inUUID) {
+            if (websocket) {
+                const json = {
+                    "event": "setGlobalSettings",
+                    "context": inUUID,
+                    "payload": globalSettings
+                };
+                websocket.send(JSON.stringify(json));
+            }
+        }
+
+        function requestGlobalSettings(inUUID) {
+            if (websocket) {
+                var json = {
+                    "event": "getGlobalSettings",
+                    "context": inUUID
+                };
+
+                websocket.send(JSON.stringify(json));
+            }
+        }
+
+        function refreshTokens() {
+            $.ajax({
+                type: "POST",
+                url: "https://accounts.spotify.com/api/token",
+                data: { "grant_type": "refresh_token", "refresh_token": globalSettings.refresh_token, "redirect_uri": "http://streamdeckify.com/authorize", "client_id": "087165fb87f04a7aa4528df82b039502", "client_secret": "63a7b9741e544f3c8096252132e3c8e6" },
+                dataType: 'json'
+            }).done(function (data) {
+                console.log(data);
+                globalSettings.access_token = data.access_token;
+                saveGlobalSettings(uuid);
+            });
+        }
+
+        function getPlaylists() {
+            if (globalSettings.access_token) {
+                $.ajax({
+                    url: 'https://api.spotify.com/v1/me/playlists',
+                    type: 'GET',
+                    headers: {
+                        'Authorization': 'Bearer ' + globalSettings.access_token
+                    },
+                    success: function (data) {
+                        playlists = data.items;
+                        populatePlaylistDropdown(data.items);
+                    },
+                    error: function (data) {
+                        console.log(data.responseJSON.error.message);
+                        if (data.responseJSON.error.message == "The access token expired") {
+                            refreshTokens();
+                            getPlaylists();
+                        }
+                    }
+                });
+            }
+        }
+
+        function base64Encode(str) {
+            var CHARS = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+            var out = "", i = 0, len = str.length, c1, c2, c3;
+            while (i < len) {
+                c1 = str.charCodeAt(i++) & 0xff;
+                if (i == len) {
+                    out += CHARS.charAt(c1 >> 2);
+                    out += CHARS.charAt((c1 & 0x3) << 4);
+                    out += "==";
+                    break;
+                }
+                c2 = str.charCodeAt(i++);
+                if (i == len) {
+                    out += CHARS.charAt(c1 >> 2);
+                    out += CHARS.charAt(((c1 & 0x3) << 4) | ((c2 & 0xF0) >> 4));
+                    out += CHARS.charAt((c2 & 0xF) << 2);
+                    out += "=";
+                    break;
+                }
+                c3 = str.charCodeAt(i++);
+                out += CHARS.charAt(c1 >> 2);
+                out += CHARS.charAt(((c1 & 0x3) << 4) | ((c2 & 0xF0) >> 4));
+                out += CHARS.charAt(((c2 & 0xF) << 2) | ((c3 & 0xC0) >> 6));
+                out += CHARS.charAt(c3 & 0x3F);
+            }
+            return out;
+        }
+
+        function populatePlaylistDropdown($playlists) {
+            console.log($playlists);
+            var output = [];
+
+            $.each($playlists, function (key, value) {
+                output.push('<option value="' + key + '">' + value.name + '</option>');
+            });
+            console.log(output);
+            $('#playlists').html(output.join(''));
+        }
+
+
+        $("#authorizeButton").click(function (e) {
+            window.open("https://accounts.spotify.com/authorize?client_id=087165fb87f04a7aa4528df82b039502&response_type=code&redirect_uri=http:%2F%2Fstreamdeckify.com%2Fauthorize&scope=playlist-read-private");
+        });
+        $("#accessCode").change(function (e) {
+            globalSettings.accessCode = $(this).val();
+            $.ajax({
+                type: "POST",
+                url: "https://accounts.spotify.com/api/token",
+                data: { "grant_type": "authorization_code", "code": globalSettings.accessCode, "redirect_uri": "http://streamdeckify.com/authorize", "client_id": "087165fb87f04a7aa4528df82b039502", "client_secret": "63a7b9741e544f3c8096252132e3c8e6" },
+                dataType: 'json'
+            }).done(function (data) {
+                globalSettings.access_token = data.access_token;
+                globalSettings.refresh_token = data.refresh_token;
+                saveGlobalSettings(uuid);
+            });
+        });
+
+        $("#playlistButton").click(function (e) {
+            getPlaylists();
+        });
+
+        $("#playlists").change(function (e) {
+            console.log(playlists[$(this).val()].uri);
+            sendValueToPlugin(playlists[$(this).val()], 'playlist');
+        });
+
+    </script>
+</body>
+
+</html>
