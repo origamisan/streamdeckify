@@ -3,9 +3,10 @@
 
 <head>
     <meta charset="utf-8" />
-    <title>com.elgato.sample PI</title>
+    <title>com.streamdeckify.app_pi</title>
     <link rel="stylesheet" href="sdpi.css">
-    <script src="jquery.js"></script>
+    <script src="../includes/jquery.js"></script>
+    <script src="../includes/streamdeckify.js"></script>
 
 </head>
 
@@ -18,7 +19,7 @@
         <div class="sdpi-item">
             <div class="sdpi-item-label top" style="display: block;">Playlists</div>
             <select class="sdpi-item-value select top" id="playlists" style="display: block;">
-
+                <option>Select a playlist</option>
             </select>
         </div>
         <div class="sdpi-item">
@@ -35,7 +36,8 @@
             uuid = null,
             actionInfo = {},
             globalSettings = {},
-            playlists = {};
+            playlists = {},
+            settings = {};
 
         function connectElgatoStreamDeckSocket(inPort, inUUID, inRegisterEvent, inInfo, inActionInfo) {
             uuid = inUUID;
@@ -54,6 +56,8 @@
                 // register property inspector to Stream Deck
                 websocket.send(JSON.stringify(json));
                 requestGlobalSettings(inUUID);
+                requestSettings(inUUID);
+                //console.log(actionInfo);
             }
 
             websocket.onmessage = function (evt) {
@@ -64,12 +68,13 @@
 
                 if (event == "didReceiveGlobalSettings") {
                     // Set global plugin settings
-                    console.log(jsonPayload['settings']);
+                    //console.log(jsonPayload['settings']);
                     globalSettings = jsonPayload['settings'];
                     getPlaylists();
                 }
                 else if (event == "didReceiveSettings") {
                     // Save global settings after default was set
+                    //console.log(jsonPayload['settings']);
                     settings = jsonPayload['settings'];
                 }
             }
@@ -101,10 +106,32 @@
             }
         }
 
+        function saveSettings(inUUID) {
+            if (websocket) {
+                const json = {
+                    "event": "setSettings",
+                    "context": inUUID,
+                    "payload": settings
+                };
+                websocket.send(JSON.stringify(json));
+            }
+        }
+
         function requestGlobalSettings(inUUID) {
             if (websocket) {
                 var json = {
                     "event": "getGlobalSettings",
+                    "context": inUUID
+                };
+
+                websocket.send(JSON.stringify(json));
+            }
+        }
+
+        function requestSettings(inUUID) {
+            if (websocket) {
+                var json = {
+                    "event": "getSettings",
                     "context": inUUID
                 };
 
@@ -119,7 +146,7 @@
                 data: { "grant_type": "refresh_token", "refresh_token": globalSettings.refresh_token, "redirect_uri": "http://streamdeckify.com/authorize", "client_id": "087165fb87f04a7aa4528df82b039502", "client_secret": "63a7b9741e544f3c8096252132e3c8e6" },
                 dataType: 'json'
             }).done(function (data) {
-                console.log(data);
+                //console.log(data);
                 globalSettings.access_token = data.access_token;
                 saveGlobalSettings(uuid);
             });
@@ -138,7 +165,7 @@
                         populatePlaylistDropdown(data.items);
                     },
                     error: function (data) {
-                        console.log(data.responseJSON.error.message);
+                        //console.log(data.responseJSON.error.message);
                         if (data.responseJSON.error.message == "The access token expired") {
                             refreshTokens();
                             getPlaylists();
@@ -148,49 +175,34 @@
             }
         }
 
-        function base64Encode(str) {
-            var CHARS = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
-            var out = "", i = 0, len = str.length, c1, c2, c3;
-            while (i < len) {
-                c1 = str.charCodeAt(i++) & 0xff;
-                if (i == len) {
-                    out += CHARS.charAt(c1 >> 2);
-                    out += CHARS.charAt((c1 & 0x3) << 4);
-                    out += "==";
-                    break;
-                }
-                c2 = str.charCodeAt(i++);
-                if (i == len) {
-                    out += CHARS.charAt(c1 >> 2);
-                    out += CHARS.charAt(((c1 & 0x3) << 4) | ((c2 & 0xF0) >> 4));
-                    out += CHARS.charAt((c2 & 0xF) << 2);
-                    out += "=";
-                    break;
-                }
-                c3 = str.charCodeAt(i++);
-                out += CHARS.charAt(c1 >> 2);
-                out += CHARS.charAt(((c1 & 0x3) << 4) | ((c2 & 0xF0) >> 4));
-                out += CHARS.charAt(((c2 & 0xF) << 2) | ((c3 & 0xC0) >> 6));
-                out += CHARS.charAt(c3 & 0x3F);
-            }
-            return out;
-        }
-
         function populatePlaylistDropdown($playlists) {
-            console.log($playlists);
-            var output = [];
+            //console.log($playlists);
+            var output = ['<option val="-1">Select a Playlist</option>'];
 
             $.each($playlists, function (key, value) {
                 output.push('<option value="' + key + '">' + value.name + '</option>');
             });
-            console.log(output);
+            //console.log(output);
             $('#playlists').html(output.join(''));
         }
 
+        function saveImageToSettings(callback) {
+            $.ajax({
+                url: settings.playlist.images[0].url,
+                type: "GET",
+                mimeType: "text/plain; charset=x-user-defined"
+            }).done(function (data, textStatus, jqXHR) {
+                settings.image = base64Encode(data);
+                callback();
+            }).fail(function (jqXHR, textStatus, errorThrown) {
+                //console.log("fail: " + errorThrown);
+            });
+        }
 
         $("#authorizeButton").click(function (e) {
-            window.open("https://accounts.spotify.com/authorize?client_id=087165fb87f04a7aa4528df82b039502&response_type=code&redirect_uri=http:%2F%2Fstreamdeckify.com%2Fauthorize&scope=playlist-read-private");
+            window.open("https://accounts.spotify.com/authorize?client_id=087165fb87f04a7aa4528df82b039502&response_type=code&redirect_uri=http:%2F%2Fstreamdeckify.com%2Fauthorize&scope=playlist-read-private%20user-modify-playback-state");
         });
+
         $("#accessCode").change(function (e) {
             globalSettings.accessCode = $(this).val();
             $.ajax({
@@ -210,8 +222,10 @@
         });
 
         $("#playlists").change(function (e) {
-            console.log(playlists[$(this).val()].uri);
-            sendValueToPlugin(playlists[$(this).val()], 'playlist');
+            //console.log(playlists[$(this).val()].uri);
+            settings.playlist = playlists[$(this).val()];
+            saveImageToSettings(sendValueToPlugin({ "action": "updateimage", "image": settings.image }, 'payload'));
+            saveSettings(uuid);
         });
 
     </script>
